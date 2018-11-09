@@ -14,8 +14,6 @@ import (
 	"github.com/pborman/uuid"
 	_ "net/http/pprof"
 	"strconv"
-
-	"github.int.brkt.net/brkt/wildling/lib/brktlog"
 )
 
 // A StreamingTransport must be safe for concurrent use by multiple
@@ -161,7 +159,6 @@ func initProfiling(port int) {
 }
 
 func (p *HttpReverseProxy) Start() error {
-	brktlog.Log.Info("Starting Reverse Proxy service on port 8080")
 
 	// start off the profiler
 	go initProfiling(6060)
@@ -235,7 +232,6 @@ func (p *HttpReverseProxy) processRequest(flow *HttpFlow) error {
 	req := flow.Request
 	err := p.app.RequestHandler(flow)
 	if err != nil {
-		brktlog.Log.Warning("Proxy: Error in request handling: ", err)
 		return err
 	}
 
@@ -245,7 +241,6 @@ func (p *HttpReverseProxy) processRequest(flow *HttpFlow) error {
 	// get the connection object
 	conn, err := transport.GetConnection(req)
 	if err != nil {
-		brktlog.Log.Warning("Proxy: Failed to get a connection to the backend server: ", err)
 		return err
 	}
 
@@ -254,12 +249,10 @@ func (p *HttpReverseProxy) processRequest(flow *HttpFlow) error {
 
 		err = transport.WriteHeader(conn, req)
 		if err != nil {
-			brktlog.Log.Warning("Proxy: Failed to send Request Headers to backend: ", err)
 			return err
 		}
 		written := int64(0)
 		// write the body out, if there is one
-		brktlog.Log.Infof("Proxy: Request Content Length is %d", req.ContentLength)
 
 		src := req.Body
 		reqBytesSeen := int64(0)
@@ -271,7 +264,6 @@ func (p *HttpReverseProxy) processRequest(flow *HttpFlow) error {
 				last_chunk := (reqBytesSeen == req.ContentLength)
 				data, err := p.app.StreamedRequestDataHandler(flow, buf[0:nr], last_chunk)
 				if err != nil {
-					brktlog.Log.Warning("Proxy: Error in request handling: ", err)
 					p.BufferPool.Put(buf)
 					break
 				}
@@ -279,16 +271,13 @@ func (p *HttpReverseProxy) processRequest(flow *HttpFlow) error {
 				nw, err := transport.Write(conn, req, data)
 				if err != nil {
 					p.BufferPool.Put(buf)
-					brktlog.Log.Warning("Proxy: Writing request body ", err)
 					break
 				}
 				if nw != nr {
 					p.BufferPool.Put(buf)
-					brktlog.Log.Warning("Proxy: ShortRequestWrite")
 					break
 				}
 				written += int64(nw)
-				brktlog.Log.Infof("Proxy: Request Written %d bytes", written)
 				if last_chunk {
 					p.BufferPool.Put(buf)
 					break
@@ -312,26 +301,22 @@ func (p *HttpReverseProxy) processRequest(flow *HttpFlow) error {
 			if nr > 0 {
 				data, err := p.app.RequestDataHandler(flow, buf[0:nr])
 				if err != nil {
-					brktlog.Log.Warning("Proxy: Error in request handling: ", err)
 					transport.PutConnection(conn)
 					return err
 				}
 				nr = len(data)
 				err = transport.WriteHeader(conn, req)
 				if err != nil {
-					brktlog.Log.Warning("Proxy: Failed to send Request Headers to backend: ", err)
 					p.BufferPool.Put(buf)
 					return err
 				}
 				nw, err := transport.Write(conn, req, data)
 				if err != nil {
-					brktlog.Log.Warning("Error: Writing request body")
 					p.BufferPool.Put(buf)
 					return err
 				}
 				if nw != nr {
 					err = ErrRequestShortWrite
-					brktlog.Log.Warning("Error: ShortRequestWrite")
 					p.BufferPool.Put(buf)
 					return err
 				}
@@ -342,41 +327,34 @@ func (p *HttpReverseProxy) processRequest(flow *HttpFlow) error {
 			// these are paged so buffer sizes should be smaller.
 			buf, err := ioutil.ReadAll(req.Body)
 			if err != nil {
-				brktlog.Log.Warning("Proxy: Error reading chunked request body")
 				return err
 			}
 			data, err := p.app.RequestDataHandler(flow, buf)
 			if err != nil {
-				brktlog.Log.Warning("Proxy: Error in request handling: ", err)
 				transport.PutConnection(conn)
 				return err
 			}
 			nr := len(data)
 			err = transport.WriteHeader(conn, req)
 			if err != nil {
-				brktlog.Log.Warning("Proxy: Failed to send Request Headers to backend: ", err)
 				return err
 			}
 			nw, err := transport.Write(conn, req, data)
 			if err != nil {
-				brktlog.Log.Warning("Error: Writing request body\n")
 				return err
 			}
 			if nw != nr {
-				brktlog.Log.Warning("Error: ShortRequestWrite\n")
 				err = ErrRequestShortWrite
 				return err
 			}
 		} else {
 			_, err := p.app.RequestDataHandler(flow, nil)
 			if err != nil {
-				brktlog.Log.Warning("Proxy: Error in request handling: ", err)
 				transport.PutConnection(conn)
 				return err
 			}
 			err = transport.WriteHeader(conn, req)
 			if err != nil {
-				brktlog.Log.Warning("Proxy: Failed to send Request Headers to backend: ", err)
 				return err
 			}
 		}
@@ -478,7 +456,6 @@ func (p *HttpReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) 
 	//send this request on its way out
 	err := p.processRequest(flow)
 	if err != nil {
-		brktlog.Log.Infof("Proxy: %v", err)
 		resp := BuildErrorResponse(outreq, err)
 		flow.Response = resp
 	}
@@ -505,7 +482,6 @@ func (p *HttpReverseProxy) processResponse(dst http.ResponseWriter, flow *HttpFl
 
 	p.app.ResponseHandler(flow)
 	if flow.ResponseStreaming == true {
-		brktlog.Log.Infof("Proxy: Response Data is %d bytes", resp.ContentLength)
 		origContentLength := resp.ContentLength
 		copyHeader(dst.Header(), flow.Response.Header)
 		dst.WriteHeader(flow.Response.StatusCode)
@@ -539,7 +515,6 @@ func (p *HttpReverseProxy) processResponse(dst http.ResponseWriter, flow *HttpFl
 					p.BufferPool.Put(buf)
 					break
 				}
-				brktlog.Log.Infof("Proxy: Response Written %d bytes", written)
 				if last_chunk {
 					p.BufferPool.Put(buf)
 					break
@@ -557,7 +532,6 @@ func (p *HttpReverseProxy) processResponse(dst http.ResponseWriter, flow *HttpFl
 			buf := p.BufferPool.Get()
 			nr, err := io.ReadFull(src, buf)
 			if err == io.EOF {
-				brktlog.Log.Warning("Response got EOF\n")
 				p.BufferPool.Put(buf)
 				return written, err
 			}
@@ -594,7 +568,6 @@ func (p *HttpReverseProxy) processResponse(dst http.ResponseWriter, flow *HttpFl
 			//
 			buf, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
-				brktlog.Log.Warning("Proxy: Error reading chunked response body")
 				return 0, err
 			}
 			data, _ := p.app.ResponseDataHandler(flow, buf)
