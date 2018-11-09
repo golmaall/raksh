@@ -159,7 +159,7 @@ func (p *HttpMitmProxy) Start() error {
 		}
 	}
 	server := &http.Server{
-		Addr:      ":8080",
+		Addr:      p.addr,
 		ConnState: connStateHandler,
 		Handler:   p,
 	}
