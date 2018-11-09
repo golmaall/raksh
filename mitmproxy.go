@@ -1,4 +1,4 @@
-package mitmproxy
+package raksh
 
 import (
 	"errors"
@@ -83,17 +83,11 @@ var ErrRequestShortWrite = errors.New("Request Short Write")
 var ErrHttpForbiddenRequest = errors.New("Forbidden")
 var ErrHttpBadRequest = errors.New("Bad Request")
 var ErrHttpUnauthorized = errors.New("Unauthorized")
-var ErrHttpObjectStore = errors.New("Objectstore Error")
 
 /*
  *  HTTP mitm proxy
  */
 type HttpMitmProxy struct {
-	// Director must be a function that modified the request into a new
-	// request to be sent using Transport. Its response is then copied
-	// back to the client
-	Director func(*http.Request)
-
 	// The transport used to perform proxy requests.
 	// If nil, http.DefaultTransport is used
 	Transport StreamingTransport
@@ -106,6 +100,8 @@ type HttpMitmProxy struct {
 	// streamed to/from the server being proxied
 	app HttpApplication
 
+	// The address at which the proxy listens for new connections
+	addr      string
 	ChunkSize int64
 	certFile  string
 	keyFile   string
@@ -115,29 +111,17 @@ func GetDefaultTransport() *ProxyTransport {
 	return defaultTransport
 }
 
-func NewHttpMitmProxy(target *url.URL, app HttpApplication, chunkSize int64, sslCertFile, sslKeyFile string) (*HttpMitmProxy, error) {
+func NewHttpMitmProxy(addr string, app HttpApplication, sslCertFile, sslKeyFile string) (*HttpMitmProxy, error) {
 
 	bufferSize := int(chunkSize)
 	pool := bpool.NewBytePool(bufPoolCapacity, bufferSize)
-	director := func(req *http.Request) {
-		targetQuery := target.RawQuery
-		req.URL.Scheme = target.Scheme
-		req.URL.Host = target.Host
-		if targetQuery == "" || req.URL.RawQuery == "" {
-			req.URL.RawQuery = targetQuery + req.URL.RawQuery
-		} else {
-			req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
-		}
-		//update the host header in the request
-		req.Host = target.Host
-	}
 
 	return &HttpMitmProxy{
-		Director:   director,
+		addr:       addr,
 		Transport:  defaultTransport,
 		BufferPool: pool,
 		app:        app,
-		ChunkSize:  chunkSize,
+		ChunkSize:  128 * 1024,
 		certFile:   sslCertFile,
 		keyFile:    sslKeyFile,
 	}, nil
@@ -234,9 +218,6 @@ func (p *HttpMitmProxy) processRequest(flow *HttpFlow) error {
 	if err != nil {
 		return err
 	}
-
-	// update the host header to the backend server
-	p.Director(req)
 
 	// get the connection object
 	conn, err := transport.GetConnection(req)
@@ -381,8 +362,6 @@ func BuildErrorResponse(outreq *http.Request, err error) *http.Response {
 		ContentLength: int64(0),
 	}
 	switch err {
-	case ErrHttpObjectStore:
-		resp.StatusCode = 601
 	case ErrHttpUnauthorized:
 		resp.StatusCode = http.StatusUnauthorized
 	case ErrHttpBadRequest:

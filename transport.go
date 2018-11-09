@@ -1,4 +1,4 @@
-package mitmproxy
+package raksh
 
 import (
 	"bufio"
