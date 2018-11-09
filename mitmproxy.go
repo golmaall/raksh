@@ -1,4 +1,4 @@
-package reverseproxy
+package mitmproxy
 
 import (
 	"errors"
@@ -51,7 +51,7 @@ func Uuid() string {
 // HTTP proxy application
 // This interface encapsulates the methods that the HTTP
 // processing application needs to implement to
-// use the reverse proxy service
+// use the mitm proxy service
 // - a handler to process HTTP Requests
 // - a handler to process HTTP Responses
 type HttpApplication interface {
@@ -86,9 +86,9 @@ var ErrHttpUnauthorized = errors.New("Unauthorized")
 var ErrHttpObjectStore = errors.New("Objectstore Error")
 
 /*
- *  HTTP reverse proxy using the standard library reverse proxy
+ *  HTTP mitm proxy
  */
-type HttpReverseProxy struct {
+type HttpMitmProxy struct {
 	// Director must be a function that modified the request into a new
 	// request to be sent using Transport. Its response is then copied
 	// back to the client
@@ -115,7 +115,7 @@ func GetDefaultTransport() *ProxyTransport {
 	return defaultTransport
 }
 
-func NewHttpReverseProxy(target *url.URL, app HttpApplication, chunkSize int64, sslCertFile, sslKeyFile string) (*HttpReverseProxy, error) {
+func NewHttpMitmProxy(target *url.URL, app HttpApplication, chunkSize int64, sslCertFile, sslKeyFile string) (*HttpMitmProxy, error) {
 
 	bufferSize := int(chunkSize)
 	pool := bpool.NewBytePool(bufPoolCapacity, bufferSize)
@@ -132,7 +132,7 @@ func NewHttpReverseProxy(target *url.URL, app HttpApplication, chunkSize int64, 
 		req.Host = target.Host
 	}
 
-	return &HttpReverseProxy{
+	return &HttpMitmProxy{
 		Director:   director,
 		Transport:  defaultTransport,
 		BufferPool: pool,
@@ -158,7 +158,7 @@ func initProfiling(port int) {
 	http.ListenAndServe(addr, http.DefaultServeMux)
 }
 
-func (p *HttpReverseProxy) Start() error {
+func (p *HttpMitmProxy) Start() error {
 
 	// start off the profiler
 	go initProfiling(6060)
@@ -205,7 +205,7 @@ var hopHeaders = []string{
 // Checks whether chunked is part of the encodings stack
 func chunked(te []string) bool { return len(te) > 0 && te[0] == "chunked" }
 
-func (p *HttpReverseProxy) streamRequestData(flow *HttpFlow) bool {
+func (p *HttpMitmProxy) streamRequestData(flow *HttpFlow) bool {
 	req := flow.Request
 
 	if (req.Method == "PUT" || req.Method == "POST") && req.ContentLength > p.ChunkSize {
@@ -214,7 +214,7 @@ func (p *HttpReverseProxy) streamRequestData(flow *HttpFlow) bool {
 	return false
 }
 
-func (p *HttpReverseProxy) streamResponseData(flow *HttpFlow) bool {
+func (p *HttpMitmProxy) streamResponseData(flow *HttpFlow) bool {
 
 	resp := flow.Response
 	if flow.Request.Method == "HEAD" {
@@ -226,7 +226,7 @@ func (p *HttpReverseProxy) streamResponseData(flow *HttpFlow) bool {
 	return false
 }
 
-func (p *HttpReverseProxy) processRequest(flow *HttpFlow) error {
+func (p *HttpMitmProxy) processRequest(flow *HttpFlow) error {
 	transport := p.Transport
 
 	req := flow.Request
@@ -397,7 +397,7 @@ func BuildErrorResponse(outreq *http.Request, err error) *http.Response {
 	return resp
 }
 
-func (p *HttpReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+func (p *HttpMitmProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	outreq := new(http.Request)
 	*outreq = *req // includes shallow copies of maps, but okay
@@ -473,7 +473,7 @@ func (p *HttpReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) 
 	}
 }
 
-func (p *HttpReverseProxy) processResponse(dst http.ResponseWriter, flow *HttpFlow) (written int64, err error) {
+func (p *HttpMitmProxy) processResponse(dst http.ResponseWriter, flow *HttpFlow) (written int64, err error) {
 
 	resp := flow.Response
 	if p.streamResponseData(flow) {
